@@ -438,15 +438,33 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
         yield from update_ui(chatbot=chatbot, history=history)  # 刷新界面
         return
 
+    # <-------------- prepare report data ------------->
+    from datetime import datetime
+    task_start_time = datetime.now()
+    successful_ids = []
+    failed_ids = []
+    task_times = []
+
     # <-------------- process each arxiv ID ------------->
     for i, arxiv_id in enumerate(arxiv_ids):
+        task_start = datetime.now()
+        separator = "#" * 72
+        current_time = datetime.now()
+        date_str = current_time.strftime('%y-%m-%d')
+        time_str = current_time.strftime('%H-%M-%S')
+        
+        chatbot.append([f"{separator}", ""])
+        chatbot.append([f"当前日期: {date_str}", f"当前时间: {time_str}"])
         chatbot.append([f"正在处理 arxiv ID ({i+1}/{len(arxiv_ids)})", f"arxiv ID: {arxiv_id}"])
         yield from update_ui(chatbot=chatbot, history=history)
 
+        success_flag = True
         try:
             # Download and process single arxiv paper
             txt, downloaded_arxiv_id = yield from arxiv_download(chatbot, history, arxiv_id, allow_cache)
         except tarfile.ReadError as e:
+            success_flag = False
+            failed_ids.append(arxiv_id)
             yield from update_ui_lastest_msg(
                 f"无法自动下载论文 {arxiv_id} 的Latex源码，请前往arxiv打开此论文下载页面，点other Formats，然后download source手动下载latex源码包。",
                 chatbot=chatbot, history=history)
@@ -520,6 +538,54 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
             yield from update_ui(chatbot=chatbot, history=history)
             time.sleep(1)
             promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
+
+        if success:
+            successful_ids.append(arxiv_id)
+        else:
+            failed_ids.append(arxiv_id)
+            success_flag = False
+
+        task_end = datetime.now()
+        task_duration = task_end - task_start
+        task_times.append(task_duration)
+
+    # <-------------- generate report ------------->
+    task_end_time = datetime.now()
+    total_duration = task_end_time - task_start_time
+    avg_duration = total_duration / len(arxiv_ids) if arxiv_ids else datetime.timedelta(0)
+
+    # Create report folder if not exists
+    report_folder = "report"
+    os.makedirs(report_folder, exist_ok=True)
+    
+    # Generate report filename
+    report_time = datetime.now()
+    report_filename = f"{report_time.strftime('%y-%m-%d-%H-%M-%S')}-arxiv论文批量下载报告.md"
+    report_path = os.path.join(report_folder, report_filename)
+
+    # Generate report content
+    report_content = f"""# Arxiv论文批量下载翻译报告
+
+## 基本信息
+| 项目 | 内容 |
+|------|------|
+| 报告生成时间 | {report_time.strftime('%y-%m-%d')} |
+| 具体时间 | {report_time.strftime('%H:%M:%S')} |
+| 任务开始时间 | {task_start_time.strftime('%y-%m-%d %H:%M:%S')} |
+| 任务结束时间 | {task_end_time.strftime('%y-%m-%d %H:%M:%S')} |
+| 平均每个任务用时 | {str(avg_duration).split('.')[0]} |
+| 任务总计用时 | {str(total_duration).split('.')[0]} |
+
+## 任务统计
+| 统计项目 | 数量 |
+|----------|------|
+| 总计任务数量 | {len(arxiv_ids)} |
+| 翻译成功数量 | {len(successful_ids)} |
+| 翻译失败数量 | {len(failed_ids)} |
+
+## 详细信息
+### 所有任务的arxiv ID
+"""
 
     # <-------------- final message ------------->
     chatbot.append((f"批量处理完成", f'共处理了 {len(arxiv_ids)} 篇论文'))
@@ -665,7 +731,7 @@ def PDF翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot, h
         promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
     else:
         chatbot.append((f"失败了",
-                        '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档, 您可以到Github Issue区, 用该���缩包进行反馈如系统是Linux，请检查系统字体（见Github wiki） ...'))
+                        '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档, 您可以到Github Issue区, 用该压缩包进行反馈如系统是Linux，请检查系统字体（见Github wiki） ...'))
         yield from update_ui(chatbot=chatbot, history=history);
         time.sleep(1)  # 刷新界面
         promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
