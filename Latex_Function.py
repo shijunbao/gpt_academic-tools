@@ -325,7 +325,7 @@ def pdf2tex_project(pdf_file_path, plugin_kwargs):
 def Latex英文纠错加PDF对比(txt, llm_kwargs, plugin_kwargs, chatbot, history, system_prompt, user_request):
     # <-------------- information about this plugin ------------->
     chatbot.append(["函数插件功能？",
-                    "对整个Latex项目进行纠错, 用latex编译为PDF对修正处做高亮。函数插件贡献者: Binary-Husky。注意事项: 目前对机器学习类文献转化效果最好，其他类型文献转化效果未知。仅在Windows系统进行了测试，其他操作系统表现未知。"])
+                    "对整个Latex项目进行纠错, 用latex编译为PDF对修正处做高亮。函数插件贡献者: Binary-Husky注意事项: 目前对机器学习类文献转化效果最好，其他类型文献转化效果未知。仅在Windows系统进行了测试，其他操作系统表现未知。"])
     yield from update_ui(chatbot=chatbot, history=history)  # 刷新界面
 
     # <-------------- more requirements ------------->
@@ -445,6 +445,72 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
     failed_ids = []
     task_times = []
 
+    # 在开始处生成一个唯一的批次ID
+    batch_id = datetime.now().strftime('%y-%m-%d-%H-%M-%S')
+    report_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "report")
+    os.makedirs(report_folder, exist_ok=True)
+
+    def generate_report(arxiv_ids, successful_ids, failed_ids, task_start_time, is_final=False):
+        """生成报告，并根据是否是最终报告决定文件名"""
+        task_end_time = datetime.now()
+        total_duration = task_end_time - task_start_time
+        avg_duration = total_duration / len(arxiv_ids) if arxiv_ids else datetime.timedelta(0)
+        
+        # 生成报告文件名
+        if is_final:
+            report_filename = f"{batch_id}-arxiv论文批量翻译报告.md"
+        else:
+            report_filename = f"{batch_id}-arxiv论文批量翻译报告-temp.md"
+        
+        report_path = os.path.join(report_folder, report_filename)
+        
+        # 如果存在之前的临时报告，删除它
+        if not is_final:
+            temp_pattern = os.path.join(report_folder, f"{batch_id}-arxiv论文批量翻译报告-temp.md")
+            for old_report in glob.glob(temp_pattern):
+                try:
+                    os.remove(old_report)
+                except Exception as e:
+                    logger.error(f"Failed to remove old report {old_report}: {e}")
+
+        # 生成报告内容
+        report_content = f"""# Arxiv论文批量翻译报告
+
+## 基本信息
+| 项目 | 内容 |
+|------|------|
+| 报告生成时间 | {task_end_time.strftime('%y-%m-%d')} |
+| 具体时间 | {task_end_time.strftime('%H:%M:%S')} |
+| 任务开始时间 | {task_start_time.strftime('%y-%m-%d %H:%M:%S')} |
+| 任务结束时间 | {task_end_time.strftime('%y-%m-%d %H:%M:%S')} |
+| 平均每个任务用时 | {str(avg_duration).split('.')[0]} |
+| 任务总计用时 | {str(total_duration).split('.')[0]} |
+
+## 任务统计
+| 统计项目 | 数量 |
+|----------|------|
+| 总计任务数量 | {len(arxiv_ids)} |
+| 翻译成功数量 | {len(successful_ids)} |
+| 翻译失败数量 | {len(failed_ids)} |
+
+## 详细信息
+### 成功翻译的论文
+{chr(10).join(['- ' + id for id in successful_ids])}
+
+### 翻译失败的论文
+{chr(10).join(['- ' + id for id in failed_ids])}
+
+### 待处理的论文
+{chr(10).join(['- ' + id for id in arxiv_ids if id not in successful_ids and id not in failed_ids])}
+"""
+        # 写入报告文件
+        try:
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(report_content)
+            logger.info(f"Report generated successfully at {report_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate report: {e}")
+
     # <-------------- process each arxiv ID ------------->
     for i, arxiv_id in enumerate(arxiv_ids):
         task_start = datetime.now()
@@ -549,43 +615,11 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
         task_duration = task_end - task_start
         task_times.append(task_duration)
 
-    # <-------------- generate report ------------->
-    task_end_time = datetime.now()
-    total_duration = task_end_time - task_start_time
-    avg_duration = total_duration / len(arxiv_ids) if arxiv_ids else datetime.timedelta(0)
+        # 每完成一个arxiv的翻译就生成一次临时报告
+        generate_report(arxiv_ids, successful_ids, failed_ids, task_start_time, is_final=False)
 
-    # Create report folder if not exists
-    report_folder = "report"
-    os.makedirs(report_folder, exist_ok=True)
-    
-    # Generate report filename
-    report_time = datetime.now()
-    report_filename = f"{report_time.strftime('%y-%m-%d-%H-%M-%S')}-arxiv论文批量下载报告.md"
-    report_path = os.path.join(report_folder, report_filename)
-
-    # Generate report content
-    report_content = f"""# Arxiv论文批量下载翻译报告
-
-## 基本信息
-| 项目 | 内容 |
-|------|------|
-| 报告生成时间 | {report_time.strftime('%y-%m-%d')} |
-| 具体时间 | {report_time.strftime('%H:%M:%S')} |
-| 任务开始时间 | {task_start_time.strftime('%y-%m-%d %H:%M:%S')} |
-| 任务结束时间 | {task_end_time.strftime('%y-%m-%d %H:%M:%S')} |
-| 平均每个任务用时 | {str(avg_duration).split('.')[0]} |
-| 任务总计用时 | {str(total_duration).split('.')[0]} |
-
-## 任务统计
-| 统计项目 | 数量 |
-|----------|------|
-| 总计任务数量 | {len(arxiv_ids)} |
-| 翻译成功数量 | {len(successful_ids)} |
-| 翻译失败数量 | {len(failed_ids)} |
-
-## 详细信息
-### 所有任务的arxiv ID
-"""
+    # 所有任务完成后生成最终报告
+    generate_report(arxiv_ids, successful_ids, failed_ids, task_start_time, is_final=True)
 
     # <-------------- final message ------------->
     chatbot.append((f"批量处理完成", f'共处理了 {len(arxiv_ids)} 篇论文'))
