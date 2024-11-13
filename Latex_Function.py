@@ -503,11 +503,23 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
 ### 待处理的论文
 {chr(10).join(['- ' + id for id in arxiv_ids if id not in successful_ids and id not in failed_ids])}
 """
+        
         # 写入报告文件
         try:
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(report_content)
             logger.info(f"Report generated successfully at {report_path}")
+            
+            # 在生成最终报告后删除临时报告
+            if is_final:
+                temp_pattern = os.path.join(report_folder, f"{batch_id}-arxiv论文批量翻译报告-temp.md")
+                for temp_file in glob.glob(temp_pattern):
+                    try:
+                        os.remove(temp_file)
+                        logger.info(f"Removed temporary report file: {temp_file}")
+                    except Exception as e:
+                        logger.error(f"Failed to remove temporary report {temp_file}: {e}")
+                    
         except Exception as e:
             logger.error(f"Failed to generate report: {e}")
 
