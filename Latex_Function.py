@@ -588,9 +588,17 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
 
         # <-------------- translate ------------->
         if not os.path.exists(project_folder + '/merge_translate_zh.tex'):
-            yield from Latex精细分解与转化(file_manifest, project_folder, llm_kwargs, plugin_kwargs,
-                                       chatbot, history, system_prompt, mode='translate_zh',
-                                       switch_prompt=_switch_prompt_)
+            try:
+                yield from Latex精细分解与转化(file_manifest, project_folder, llm_kwargs, plugin_kwargs,
+                                           chatbot, history, system_prompt, mode='translate_zh',
+                                           switch_prompt=_switch_prompt_)
+            except Exception as e:
+                success_flag = False
+                failed_ids.append(arxiv_id)
+                yield from update_ui_lastest_msg(
+                    f"论文 {arxiv_id} 在精细切分阶段失败: {str(e)}",
+                    chatbot=chatbot, history=history)
+                continue
 
         # <-------------- compile PDF ------------->
         success = yield from 编译Latex(chatbot, history, main_file_original='merge',
@@ -734,7 +742,7 @@ def PDF翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot, h
         return False
 
     # <-------------- translate latex file into Chinese ------------->
-    yield from update_ui_lastest_msg("正在tex项目将翻译为中文...", chatbot=chatbot, history=history)
+    yield from update_ui_lastest_msg("���在tex项目将翻译为中文...", chatbot=chatbot, history=history)
     file_manifest = [f for f in glob.glob(f'{project_folder}/**/*.tex', recursive=True)]
     if len(file_manifest) == 0:
         report_exception(chatbot, history, a=f"解析项目: {txt}", b=f"找不到任何.tex文件: {txt}")
