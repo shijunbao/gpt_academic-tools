@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 # 配置 OpenAI API
-openai.api_key = 'sk-11111111111111111111111111'  # 请替换为你的deepseek API密钥，或者本地apikey
+openai.api_key = 'sk-111111111111111111111111111'  # 请替换为你的deepseek API密钥，或者本地apikey
 openai.api_base = 'https://api.deepseek.com/beta'  # DeepSeek API的beta地址或者本地apikey
 model_name = 'deepseek-coder'   #模型名字
 temperature = 0.7
@@ -19,7 +19,7 @@ MAX_WORKERS = 40  # 可以根据需要修改线程数  deepseek 可以设置为4
 print_lock = Lock()
 
 # 添加重命名开关配置
-RENAME_ALL_PDFS = False  # 默认关闭重命名所有PDF的功能  True 为重命名当前文件夹下不包含子文件夹的所有PDF  False 为只重命名翻译后的PDF
+RENAME_ALL_PDFS = True  # 默认关闭重命名所有PDF的功能  True 为重命名当前文件夹下不包含子文件夹的所有PDF  False 为只重命名翻译后的PDF
 
 # 读取第一页 第二页  返回读取的文本信息
 def read_pdf_content(file_path):
