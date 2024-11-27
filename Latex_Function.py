@@ -219,12 +219,16 @@ def arxiv_download(chatbot, history, txt, allow_cache=True):
     def fix_url_and_download():
         # for url_tar in [url_.replace('/abs/', '/e-print/'), url_.replace('/abs/', '/src/')]:
         for url_tar in [url_.replace('/abs/', '/src/'), url_.replace('/abs/', '/e-print/')]:
-            proxies = get_conf('proxies')
-            r = requests.get(url_tar, proxies=proxies)
-            if r.status_code == 200:
-                with open(dst, 'wb+') as f:
-                    f.write(r.content)
-                return True
+            try:
+                proxies = get_conf('proxies')
+                r = requests.get(url_tar, proxies=proxies)
+                if r.status_code == 200:
+                    with open(dst, 'wb+') as f:
+                        f.write(r.content)
+                    return True
+            except (requests.exceptions.ConnectionError, requests.exceptions.RequestException) as e:
+                logger.error(f"Download failed for {url_tar}: {str(e)}")
+                continue
         return False
 
     if os.path.exists(dst) and allow_cache:
@@ -232,9 +236,23 @@ def arxiv_download(chatbot, history, txt, allow_cache=True):
         success = True
     else:
         yield from update_ui_lastest_msg(f"开始下载 {arxiv_id}", chatbot=chatbot, history=history)  # 刷新界面
-        success = fix_url_and_download()
-        yield from update_ui_lastest_msg(f"下载完成 {arxiv_id}", chatbot=chatbot, history=history)  # 刷新界面
-
+        max_retries = 1
+        success = False
+        for retry in range(max_retries):
+            try:
+                success = fix_url_and_download()
+                if success:
+                    break
+                if retry < max_retries - 1:
+                    yield from update_ui_lastest_msg(f"下载失败，正在重试 ({retry + 1}/{max_retries})...", chatbot=chatbot, history=history)
+                    time.sleep(5)  # Wait before retry
+            except Exception as e:
+                logger.error(f"Error during download attempt {retry + 1}: {str(e)}")
+                if retry < max_retries - 1:
+                    yield from update_ui_lastest_msg(f"下载出错，正在重试 ({retry + 1}/{max_retries})...", chatbot=chatbot, history=history)
+                    time.sleep(5)  # Wait before retry
+                continue
+        yield from update_ui_lastest_msg(f"下载完成 {arxiv_id}" if success else f"下载失败 {arxiv_id}", chatbot=chatbot, history=history)
 
     if not success:
         yield from update_ui_lastest_msg(f"下载失败 {arxiv_id}", chatbot=chatbot, history=history)
@@ -742,7 +760,7 @@ def PDF翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot, h
         return False
 
     # <-------------- translate latex file into Chinese ------------->
-    yield from update_ui_lastest_msg("���在tex项目将翻译为中文...", chatbot=chatbot, history=history)
+    yield from update_ui_lastest_msg("在tex项目将翻译为中文...", chatbot=chatbot, history=history)
     file_manifest = [f for f in glob.glob(f'{project_folder}/**/*.tex', recursive=True)]
     if len(file_manifest) == 0:
         report_exception(chatbot, history, a=f"解析项目: {txt}", b=f"找不到任何.tex文件: {txt}")
