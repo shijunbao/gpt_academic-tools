@@ -262,9 +262,10 @@ def arxiv_download(chatbot, history, txt, allow_cache=True):
     from toolbox import extract_archive
     try:
         extract_archive(file_path=dst, dest_dir=extract_dst)
-    except tarfile.ReadError:
-        os.remove(dst)
-        raise tarfile.ReadError(f"论文下载失败")
+    except Exception as e:
+        logger.error(f"Failed to extract {dst}: {str(e)}")
+        raise tarfile.ReadError(f"论文解压失败: {str(e)}")
+
     return extract_dst, arxiv_id
 
 
