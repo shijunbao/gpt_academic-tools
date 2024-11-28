@@ -610,6 +610,7 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
 
         if txt.endswith('.pdf'):
             yield from update_ui_lastest_msg(f"论文 {arxiv_id} 已经存在翻译好的PDF文档", chatbot=chatbot, history=history)
+            successful_ids.append(arxiv_id)  # 添加到成功列表
             continue
 
         # Rest of the processing remains same as before
