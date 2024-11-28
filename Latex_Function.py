@@ -335,6 +335,18 @@ def pdf2tex_project(pdf_file_path, plugin_kwargs):
         return unzip_dir
 
 
+def open_folder(folder_path):
+    """Open folder in file explorer"""
+    try:
+        import platform, subprocess
+        if platform.system() == 'Windows':
+            os.startfile(folder_path)
+        elif platform.system() == 'Darwin':  # macOS
+            subprocess.run(['open', folder_path])
+        else:  # linux
+            subprocess.run(['xdg-open', folder_path])
+    except Exception as e:
+        logger.error(f"Failed to open folder {folder_path}: {str(e)}")
 
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= 插件主程序1 =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -418,6 +430,25 @@ def Latex英文纠错加PDF对比(txt, llm_kwargs, plugin_kwargs, chatbot, histo
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= 插件主程序2 =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
+def read_previous_translation_reports(report_folder):
+    """读取历史翻译报告，返回所有已成功翻译的arxiv ID"""
+    successful_translations = set()
+    try:
+        for report in glob.glob(os.path.join(report_folder, '*-arxiv论文批量翻译报告.md')):
+            with open(report, 'r', encoding='utf-8') as f:
+                content = f.read()
+                # 定位到成功翻译的论文部分
+                if '### 成功翻译的论文' in content:
+                    success_section = content.split('### 成功翻译的论文')[1].split('###')[0]
+                    # 提取arxiv ID
+                    for line in success_section.strip().split('\n'):
+                        if line.startswith('- '):
+                            arxiv_id = line[2:].strip()
+                            successful_translations.add(arxiv_id)
+    except Exception as e:
+        logger.error(f"Error reading translation reports: {str(e)}")
+    return successful_translations
+
 @CatchException
 def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot, history, system_prompt, user_request):
     # <-------------- information about this plugin ------------->
@@ -468,6 +499,16 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
     batch_id = datetime.now().strftime('%y-%m-%d-%H-%M-%S')
     report_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "report")
     os.makedirs(report_folder, exist_ok=True)
+    if len(arxiv_ids) > 5: open_folder(report_folder)
+
+    # 读取历史翻译记录
+    previously_translated = read_previous_translation_reports(report_folder)
+    if previously_translated:
+        skipped_ids = [id for id in arxiv_ids if id in previously_translated]
+        arxiv_ids = [id for id in arxiv_ids if id not in previously_translated]
+        if skipped_ids:
+            chatbot.append([f"跳过已翻译论文", f"以下论文已在历史记录中成功翻译：{', '.join(skipped_ids)}"])
+            yield from update_ui(chatbot=chatbot, history=history)
 
     def generate_report(arxiv_ids, successful_ids, failed_ids, task_start_time, is_final=False):
         """生成报告，并根据是否是最终报告决定文件名"""
