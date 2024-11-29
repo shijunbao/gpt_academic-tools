@@ -194,7 +194,7 @@ def arxiv_download(chatbot, history, txt, allow_cache=True):
         return txt, None    # 是本地文件，跳过下载
 
     # <-------------- inspect format ------------->
-    chatbot.append([f"检测到arxiv文档连接", '尝试下载 ...'])
+    chatbot.append([f"检到arxiv文档连接", '尝试下载 ...'])
     yield from update_ui(chatbot=chatbot, history=history)
     time.sleep(1)  # 刷新界面
 
@@ -610,7 +610,8 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
 
         if txt.endswith('.pdf'):
             yield from update_ui_lastest_msg(f"论文 {arxiv_id} 已经存在翻译好的PDF文档", chatbot=chatbot, history=history)
-            successful_ids.append(arxiv_id)  # 添加到成功列表
+            if arxiv_id not in successful_ids:  # 防止重复添加
+                successful_ids.append(arxiv_id)
             continue
 
         # Rest of the processing remains same as before
@@ -648,6 +649,7 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
                 continue
 
         # <-------------- translate ------------->
+        success_flag = True  # 初始化整体成功状态
         if not os.path.exists(project_folder + '/merge_translate_zh.tex'):
             try:
                 yield from Latex精细分解与转化(file_manifest, project_folder, llm_kwargs, plugin_kwargs,
@@ -655,38 +657,51 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
                                            switch_prompt=_switch_prompt_)
             except Exception as e:
                 success_flag = False
-                failed_ids.append(arxiv_id)
+                failed_ids.append(arxiv_id)  # 立即添加到失败列表
                 yield from update_ui_lastest_msg(
                     f"论文 {arxiv_id} 在精细切分阶段失败: {str(e)}",
                     chatbot=chatbot, history=history)
                 continue
 
         # <-------------- compile PDF ------------->
-        success = yield from 编译Latex(chatbot, history, main_file_original='merge',
-                                   main_file_modified='merge_translate_zh', mode='translate_zh',
-                                   work_folder_original=project_folder, work_folder_modified=project_folder,
-                                   work_folder=project_folder)
+        try:
+            yield from update_ui_lastest_msg("正在将翻译好的项目tex项目编译为PDF...", chatbot=chatbot, history=history)
+            pdf_success = yield from 编译Latex(chatbot, history, main_file_original='merge',
+                                        main_file_modified='merge_translate_zh', mode='translate_zh',
+                                        work_folder_original=project_folder, work_folder_modified=project_folder,
+                                        work_folder=project_folder)
+            if not pdf_success:
+                success_flag = False
+        except Exception as e:
+            success_flag = False
+            logger.error(f"PDF compilation failed: {str(e)}")
+            yield from update_ui_lastest_msg(f"PDF编译过程出错: {str(e)}", chatbot=chatbot, history=history)
 
         # <-------------- zip PDF ------------->
-        zip_res = zip_result(project_folder)
-        if success:
-            if allow_gptac_cloud_io and downloaded_arxiv_id:
-                from crazy_functions.latex_fns.latex_actions import upload_to_gptac_cloud_if_user_allow
-                threading.Thread(target=upload_to_gptac_cloud_if_user_allow, 
-                    args=(chatbot, downloaded_arxiv_id), daemon=True).start()
+        try:
+            zip_res = zip_result(project_folder)
+            if success_flag:
+                chatbot.append((f"论文 {arxiv_id} 处理成功", '请查收结果（压缩包）...'))
+                yield from update_ui(chatbot=chatbot, history=history)
+                time.sleep(1)
+                promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
+                successful_ids.append(arxiv_id)  # 所有步骤都成功后才添加到成功列表
+            else:
+                chatbot.append((f"论文 {arxiv_id} 处理失败",
+                                '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档...'))
+                yield from update_ui(chatbot=chatbot, history=history)
+                time.sleep(1)
+                promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
+                if arxiv_id not in failed_ids:  # 避免重复添加
+                    failed_ids.append(arxiv_id)
+        except Exception as e:
+            success_flag = False
+            if arxiv_id not in failed_ids:  # 避免重复添加
+                failed_ids.append(arxiv_id)
+            logger.error(f"Result packaging failed: {str(e)}")
+            yield from update_ui_lastest_msg(f"结果打包过程出错: {str(e)}", chatbot=chatbot, history=history)
 
-            chatbot.append((f"论文 {arxiv_id} 处理成功", '请查收结果（压缩包）...'))
-            yield from update_ui(chatbot=chatbot, history=history)
-            time.sleep(1)
-            promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
-        else:
-            chatbot.append((f"论文 {arxiv_id} 处理失败",
-                            '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档, 您可以到Github Issue区, 用该压缩包进行反馈。如系统是Linux，请检查系统字体（见Github wiki） ...'))
-            yield from update_ui(chatbot=chatbot, history=history)
-            time.sleep(1)
-            promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
-
-        if success:
+        if success_flag:
             successful_ids.append(arxiv_id)
         else:
             failed_ids.append(arxiv_id)
@@ -831,25 +846,58 @@ def PDF翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot, h
                                     switch_prompt=_switch_prompt_)
 
     # <-------------- compile PDF ------------->
-    yield from update_ui_lastest_msg("正在将翻译好的项目tex项目编译为PDF...", chatbot=chatbot, history=history)
-    success = yield from 编译Latex(chatbot, history, main_file_original='merge',
-                                main_file_modified='merge_translate_zh', mode='translate_zh',
-                                work_folder_original=project_folder, work_folder_modified=project_folder,
-                                work_folder=project_folder)
+    try:
+        yield from update_ui_lastest_msg("正在将翻译好的项目tex项目编译为PDF...", chatbot=chatbot, history=history)
+        success = yield from 编译Latex(chatbot, history, main_file_original='merge',
+                                    main_file_modified='merge_translate_zh', mode='translate_zh',
+                                    work_folder_original=project_folder, work_folder_modified=project_folder,
+                                    work_folder=project_folder)
+    except Exception as e:
+        success = False
+        logger.error(f"PDF compilation failed: {str(e)}")
+        yield from update_ui_lastest_msg(f"PDF编译过程出错: {str(e)}", chatbot=chatbot, history=history)
 
     # <-------------- zip PDF ------------->
-    zip_res = zip_result(project_folder)
-    if success:
-        chatbot.append((f"成功啦", '请收结果（压缩包）...'))
-        yield from update_ui(chatbot=chatbot, history=history);
-        time.sleep(1)  # 刷新界面
-        promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
-    else:
-        chatbot.append((f"失败了",
-                        '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档, 您可以到Github Issue区, 用该压缩包进行反馈如系统是Linux，请检查系统字体（见Github wiki） ...'))
-        yield from update_ui(chatbot=chatbot, history=history);
-        time.sleep(1)  # 刷新界面
-        promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
+    try:
+        zip_res = zip_result(project_folder)
+        if success:
+            chatbot.append((f"成功啦", '请收结果（压缩包）...'))
+            yield from update_ui(chatbot=chatbot, history=history)
+            time.sleep(1)
+            promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
+        else:
+            chatbot.append((f"失败了",
+                            '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档, 您可以到Github Issue区, 用该压缩包进行反馈如系统是Linux，请检查系统字体（见Github wiki） ...'))
+            yield from update_ui(chatbot=chatbot, history=history)
+            time.sleep(1)
+            promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
+    except Exception as e:
+        logger.error(f"Result packaging failed: {str(e)}")
+        yield from update_ui_lastest_msg(f"结果打包过程出错: {str(e)}", chatbot=chatbot, history=history)
 
     # <-------------- we are done ------------->
     return success
+
+def zip_result(project_folder):
+    """
+    使用toolbox.zip_result前，修正所有文件的时间戳
+    """
+    import os
+    from datetime import datetime
+    min_timestamp = datetime(1980, 1, 1).timestamp()
+    
+    # 修正所有文件的时间戳
+    for root, dirs, files in os.walk(project_folder):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                stat = os.stat(file_path)
+                if stat.st_mtime < min_timestamp:
+                    # 将时间戳设置为1980年1月1日
+                    os.utime(file_path, (min_timestamp, min_timestamp))
+            except Exception as e:
+                logger.error(f"Failed to fix timestamp for {file_path}: {str(e)}")
+                
+    # 调用原有的zip_result函数
+    from toolbox import zip_result as toolbox_zip_result
+    return toolbox_zip_result(project_folder)
