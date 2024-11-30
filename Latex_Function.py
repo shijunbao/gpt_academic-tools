@@ -434,19 +434,34 @@ def read_previous_translation_reports(report_folder):
     """读取历史翻译报告，返回所有已成功翻译的arxiv ID"""
     successful_translations = set()
     try:
-        for report in glob.glob(os.path.join(report_folder, '*-arxiv论文批量翻译报告.md')):
-            with open(report, 'r', encoding='utf-8') as f:
-                content = f.read()
-                # 定位到成功翻译的论文部分
-                if '### 成功翻译的论文' in content:
-                    success_section = content.split('### 成功翻译的论文')[1].split('###')[0]
-                    # 提取arxiv ID
-                    for line in success_section.strip().split('\n'):
-                        if line.startswith('- '):
-                            arxiv_id = line[2:].strip()
-                            successful_translations.add(arxiv_id)
+        # 确保匹配所有报告文件，包括临时文件
+        report_patterns = [
+            '*-arxiv论文批量翻译报告.md',
+            '*-arxiv论文批量翻译报告-temp.md'
+        ]
+        for pattern in report_patterns:
+            for report in glob.glob(os.path.join(report_folder, pattern)):
+                try:
+                    with open(report, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        # 更精确的分段匹配
+                        if '### 成功翻译的论文' in content:
+                            sections = content.split('### ')
+                            for section in sections:
+                                if section.startswith('成功翻译的论文'):
+                                    success_lines = section.strip().split('\n')
+                                    for line in success_lines:
+                                        if line.startswith('- '):
+                                            arxiv_id = line[2:].strip()
+                                            if arxiv_id:  # 确保ID不为空
+                                                successful_translations.add(arxiv_id)
+                except Exception as e:
+                    logger.error(f"Error reading report {report}: {str(e)}")
+                    continue
     except Exception as e:
-        logger.error(f"Error reading translation reports: {str(e)}")
+        logger.error(f"Error scanning report folder: {str(e)}")
+    
+    logger.info(f"Found {len(successful_translations)} previously translated papers")
     return successful_translations
 
 @CatchException
@@ -509,6 +524,11 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
         if skipped_ids:
             chatbot.append([f"跳过已翻译论文", f"以下论文已在历史记录中成功翻译：{', '.join(skipped_ids)}"])
             yield from update_ui(chatbot=chatbot, history=history)
+
+    if not arxiv_ids:
+        chatbot.append([f"任务结束", f"所有论文都已经翻译过了"])
+        yield from update_ui(chatbot=chatbot, history=history)
+        return
 
     def generate_report(arxiv_ids, successful_ids, failed_ids, task_start_time, is_final=False):
         """生成报告，并根据是否是最终报告决定文件名"""
@@ -609,7 +629,7 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
             continue
 
         if txt.endswith('.pdf'):
-            yield from update_ui_lastest_msg(f"论文 {arxiv_id} 已经存在翻译好的PDF文档", chatbot=chatbot, history=history)
+            yield from update_ui_lastest_msg(f"论文 {arxiv_id} 已经存在���译好的PDF文档", chatbot=chatbot, history=history)
             if arxiv_id not in successful_ids:  # 防止重复添加
                 successful_ids.append(arxiv_id)
             continue
