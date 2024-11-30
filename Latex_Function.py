@@ -596,7 +596,7 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
         chatbot.append([f"正在处理 arxiv ID ({i+1}/{len(arxiv_ids)})", f"arxiv ID: {arxiv_id}"])
         yield from update_ui(chatbot=chatbot, history=history)
 
-        success_flag = True
+        success_flag = True  # 初始化成功标志
         try:
             # Download and process single arxiv paper
             txt, downloaded_arxiv_id = yield from arxiv_download(chatbot, history, arxiv_id, allow_cache)
@@ -649,7 +649,6 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
                 continue
 
         # <-------------- translate ------------->
-        success_flag = True  # 初始化整体成功状态
         if not os.path.exists(project_folder + '/merge_translate_zh.tex'):
             try:
                 yield from Latex精细分解与转化(file_manifest, project_folder, llm_kwargs, plugin_kwargs,
@@ -657,7 +656,8 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
                                            switch_prompt=_switch_prompt_)
             except Exception as e:
                 success_flag = False
-                failed_ids.append(arxiv_id)  # 立即添加到失败列表
+                if arxiv_id not in failed_ids:  # 防重复
+                    failed_ids.append(arxiv_id)
                 yield from update_ui_lastest_msg(
                     f"论文 {arxiv_id} 在精细切分阶段失败: {str(e)}",
                     chatbot=chatbot, history=history)
@@ -670,10 +670,11 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
                                         main_file_modified='merge_translate_zh', mode='translate_zh',
                                         work_folder_original=project_folder, work_folder_modified=project_folder,
                                         work_folder=project_folder)
-            if not pdf_success:
-                success_flag = False
+          
         except Exception as e:
             success_flag = False
+            if arxiv_id not in failed_ids:  # 防重复
+                failed_ids.append(arxiv_id)
             logger.error(f"PDF compilation failed: {str(e)}")
             yield from update_ui_lastest_msg(f"PDF编译过程出错: {str(e)}", chatbot=chatbot, history=history)
 
@@ -685,27 +686,29 @@ def Latex翻译中文并重新编译PDF(txt, llm_kwargs, plugin_kwargs, chatbot,
                 yield from update_ui(chatbot=chatbot, history=history)
                 time.sleep(1)
                 promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
-                successful_ids.append(arxiv_id)  # 所有步骤都成功后才添加到成功列表
+               
             else:
                 chatbot.append((f"论文 {arxiv_id} 处理失败",
                                 '虽然PDF生成失败了, 但请查收结果（压缩包）, 内含已经翻译的Tex文档...'))
                 yield from update_ui(chatbot=chatbot, history=history)
                 time.sleep(1)
                 promote_file_to_downloadzone(file=zip_res, chatbot=chatbot)
-                if arxiv_id not in failed_ids:  # 避免重复添加
+                if arxiv_id not in failed_ids:  # 防重复
                     failed_ids.append(arxiv_id)
         except Exception as e:
             success_flag = False
-            if arxiv_id not in failed_ids:  # 避免重复添加
+            if arxiv_id not in failed_ids:  # 防重复
                 failed_ids.append(arxiv_id)
             logger.error(f"Result packaging failed: {str(e)}")
             yield from update_ui_lastest_msg(f"结果打包过程出错: {str(e)}", chatbot=chatbot, history=history)
 
         if success_flag:
-            successful_ids.append(arxiv_id)
+            if arxiv_id not in successful_ids:
+                successful_ids.append(arxiv_id)
         else:
-            failed_ids.append(arxiv_id)
-            success_flag = False
+            if arxiv_id not in failed_ids:
+                failed_ids.append(arxiv_id)
+            
 
         task_end = datetime.now()
         task_duration = task_end - task_start
